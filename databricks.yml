@@ -1,0 +1,69 @@
+# =============================================================================
+# databricks.yml — DAB root bundle
+# Wheel built via uv, uploaded to UC Volume, referenced as library dependency.
+# Workspace resolved from CLI --profile flag.
+#
+# Deploy:
+#   databricks bundle deploy --profile prod
+#   databricks bundle deploy --target dev --profile dev
+# =============================================================================
+bundle:
+  name: ipac-tax-synch
+
+# ── Resource YAML files ───────────────────────────────────────────────────────
+include:
+  - resources/pipelines/*.yml
+  - resources/jobs/*.yml
+
+# ── Wheel artifact ────────────────────────────────────────────────────────────
+# Builds src/ into a wheel and uploads to UC Volume
+# Referenced as a library in jobs/pipelines below
+artifacts:
+  ipac_tax_synch_whl:
+    type: whl
+    path: .                          # pyproject.toml at project root
+    build: uv build                  # builds dist/ipac_tax_synch-*.whl
+
+# ── Bundle-level variable declarations ───────────────────────────────────────
+variables:
+  connection_name:
+    default: 'client_a_sqlserver'
+    description: 'Unity Catalog connection name for SQL Server'
+  source_database:
+    default: 'free-sql-db-0862313'
+    description: 'SQL Server source database name'
+  source_schema:
+    default: 'dbo'
+    description: 'SQL Server source schema'
+  dest_catalog:
+    default: 'ipac_tax_synch'
+    description: 'Destination Unity Catalog catalog'
+  dest_schema:
+    default: 'client_a_raw'
+    description: 'Destination schema for ingested tables'
+  staging_catalog:
+    default: 'ipac_tax_synch'
+    description: 'Catalog for gateway staging volume'
+  staging_schema:
+    default: 'client_a_staging'
+    description: 'Schema for gateway staging volume'
+  whl_volume:
+    default: '/Volumes/ipac_tax_synch/libraries/wheels'
+    description: 'UC Volume path where wheel is stored'
+
+# ── Targets ───────────────────────────────────────────────────────────────────
+targets:
+  dev:
+    variables:
+      dest_schema:    'client_a_raw_dev'
+      staging_schema: 'client_a_staging_dev'
+      whl_volume:     '/Volumes/ipac_tax_synch/libraries/wheels_dev'
+
+  prod:
+    workspace:
+      root_path: /Workspace/Shared/ipac_tax_synch/prod   # ← fixed YAML formatting
+    default: true
+    variables:
+      dest_schema:    'client_a_raw'
+      staging_schema: 'client_a_staging'
+      whl_volume:     '/Volumes/ipac_tax_synch/libraries/wheels'

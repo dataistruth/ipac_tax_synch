@@ -1,0 +1,63 @@
+# Databricks Asset Bundle / Jobs API job definition
+# Job: custom_ingest_and_scd_from_sql_server
+#
+# Task graph:
+#   get_active_tables  ──►  for_each_table ──► ingest_table_scd (per table)
+#
+# Deploy with DAB (`databricks bundle deploy`) or translate to the
+# Jobs 2.1 JSON via `databricks jobs create --json ...`.
+
+resources:
+  jobs:
+    custom_ingest_and_scd_from_sql_server:
+      name: custom_ingest_and_scd_from_sql_server
+      max_concurrent_runs: 1
+
+      parameters:
+        - name: client_id
+          default: client_a
+
+      tasks:
+        # ------------------------------------------------------------------ #
+        # Task 1: read Lakebase config, emit active table list
+        # ------------------------------------------------------------------ #
+        - task_key: get_active_tables
+          notebook_task:
+            notebook_path: ../../src/common/notebook1/get_active_tables.py
+            base_parameters:
+              client_id: "{{job.parameters.client_id}}"
+          job_cluster_key: ingest_cluster
+
+        # ------------------------------------------------------------------ #
+        # Task 2: fan out — one iteration per table
+        # ------------------------------------------------------------------ #
+        - task_key: for_each_table
+          depends_on:
+            - task_key: get_active_tables
+          for_each_task:
+            inputs: "{{tasks.get_active_tables.values.active_tables}}"
+            concurrency: 5          # tables processed in parallel
+            task:
+              task_key: ingest_table_scd
+              notebook_task:
+                notebook_path: ../../src/common/notebook1/ingest_tables_from_sql_server_to_delta.py
+                base_parameters:
+                  table_config: "{{input}}"
+              job_cluster_key: ingest_cluster
+
+      job_clusters:
+        - job_cluster_key: ingest_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: Standard_D8ds_v5      # Azure; adjust for your cloud
+            num_workers: 2
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.databricks.delta.schema.autoMerge.enabled: "true"
+
+      # Optional: schedule + notifications
+      # schedule:
+      #   quartz_cron_expression: "0 0 6 * * ?"
+      #   timezone_id: America/Chicago
+      email_notifications:
+        on_failure: []              # add your alert address(es)

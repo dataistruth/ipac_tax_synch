@@ -1,0 +1,158 @@
+# =============================================================================
+# resources/jobs/auto_cdc_ingestion_4_reordered.yml
+#
+# Lakeflow Connect — Integrated CDC pipeline #4 (Beta) for Client A
+# Scope: the two wide fact tables with ALL columns selected via
+# include_columns, but listed with the PRIMARY KEY FIRST. Tests whether the
+# connector honors include_columns ordering for the destination schema —
+# if yes, the PK lands at position 1 (inside the 32-column window) with
+# zero data loss; if no, this pipeline behaves identically to pipeline #2.
+#
+# Destination tables suffixed _reordered to avoid collisions with the
+# copies written by pipelines #2 (full) and #3 (_slim).
+#
+# NOTE: Variables are defined once in lakeflow_connect_job_n_pipeline.yml
+# and shared bundle-wide — do NOT redefine them here.
+# =============================================================================
+
+resources:
+  pipelines:
+    auto_cdc_ingestion_4_pipeline:
+      name: ${var.client_id}_auto_cdc_ingestion_4_reordered
+      pipeline_type: MANAGED_INGESTION
+      channel: PREVIEW
+      serverless: true
+      catalog: ${var.dest_catalog}
+      schema: ${var.dest_schema}
+      ingestion_definition:
+        connection_name: ${var.connection_name}
+        connector_type: CDC
+        data_staging_options:
+          catalog_name: ${var.dest_catalog}
+          schema_name: ${var.staging_schema}
+        objects:
+          # ------------------------------------------------------------------
+          # fact_gl_line_detail → fact_gl_line_detail_reordered
+          # All 42 columns; PK moved from position 40 to position 1.
+          # ------------------------------------------------------------------
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: fact_gl_line_detail
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              destination_table: fact_gl_line_detail_reordered
+              table_configuration:
+                include_columns:
+                  - gl_line_id          # PK first (source position 40)
+                  - entity_id
+                  - period_id
+                  - partner_id
+                  - account_code
+                  - account_name
+                  - account_type
+                  - transaction_date
+                  - posting_date
+                  - fiscal_year
+                  - fiscal_quarter
+                  - fiscal_month
+                  - journal_source
+                  - journal_batch
+                  - reference_no
+                  - description
+                  - debit_amount
+                  - credit_amount
+                  - net_amount
+                  - base_currency
+                  - txn_currency
+                  - exchange_rate
+                  - base_amount
+                  - book_amount
+                  - tax_amount
+                  - m1_adjustment
+                  - state_amount
+                  - federal_amount
+                  - department_code
+                  - cost_center
+                  - project_code
+                  - location_code
+                  - intercompany_flag
+                  - elimination_flag
+                  - recurring_flag
+                  - reversal_flag
+                  - source_system
+                  - created_by
+                  - created_at
+                  - updated_at
+                  - batch_uuid
+                  - is_active
+          # ------------------------------------------------------------------
+          # fact_k1_allocation_detail → fact_k1_allocation_detail_reordered
+          # All 41 columns; PK moved from position 40 to position 1.
+          # ------------------------------------------------------------------
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: fact_k1_allocation_detail
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              destination_table: fact_k1_allocation_detail_reordered
+              table_configuration:
+                include_columns:
+                  - k1_line_id          # PK first (source position 40)
+                  - entity_id
+                  - partner_id
+                  - period_id
+                  - tax_year
+                  - allocation_method
+                  - ownership_pct
+                  - profit_pct
+                  - loss_pct
+                  - capital_pct
+                  - ordinary_income
+                  - rental_income
+                  - interest_income
+                  - dividend_income
+                  - royalty_income
+                  - st_capital_gain
+                  - lt_capital_gain
+                  - sec1231_gain
+                  - other_income
+                  - sec179_deduction
+                  - charitable_contrib
+                  - investment_interest
+                  - sec59e_expenditure
+                  - other_deductions
+                  - se_earnings
+                  - credits_amount
+                  - foreign_tax_paid
+                  - amt_adjustment
+                  - tax_exempt_interest
+                  - nondeductible_exp
+                  - distributions_cash
+                  - distributions_property
+                  - capital_beginning
+                  - capital_contributed
+                  - capital_income
+                  - capital_withdrawn
+                  - capital_ending
+                  - state_source_code
+                  - created_by
+                  - created_at
+                  - is_final
+
+  jobs:
+    auto_cdc_ingestion_4_job:
+      name: ${var.client_id}_auto_cdc_ingestion_4_reordered_job
+      tasks:
+        - task_key: cdc_ingestion_reordered_facts
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.auto_cdc_ingestion_4_pipeline.id}
+          max_retries: 2
+          min_retry_interval_millis: 300000
+          retry_on_timeout: false
+      schedule:
+        quartz_cron_expression: '0 0 * * * ?'
+        timezone_id: UTC
+        pause_status: PAUSED                  # test pipeline: trigger manually
+      max_concurrent_runs: 1

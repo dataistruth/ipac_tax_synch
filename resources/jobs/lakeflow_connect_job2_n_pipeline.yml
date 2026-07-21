@@ -1,0 +1,56 @@
+# =============================================================================
+# resources/jobs/auto_cdc_ingestion_2.yml
+#
+# Lakeflow Connect — Integrated CDC pipeline #2 (Beta) for Client A
+# Scope: ONLY the two wide fact tables (PK at ordinal position 40) used to
+# test the clustering-key behavior, isolated from the main 10-table pipeline.
+#
+# NOTE: Variables (client_id, connection_name, source_catalog, source_schema,
+# dest_catalog, dest_schema, staging_schema) are defined once in
+# lakeflow_connect_job_n_pipeline.yml and shared bundle-wide — do NOT
+# redefine them here or the bundle will fail on duplicate variables.
+# =============================================================================
+resources:
+  pipelines:
+    auto_cdc_ingestion_2_pipeline:
+      name: ${var.client_id}_auto_cdc_ingestion_2
+      pipeline_type: MANAGED_INGESTION
+      channel: PREVIEW
+      serverless: true
+      catalog: ${var.dest_catalog}
+      schema: ${var.dest_schema}
+      ingestion_definition:
+        connection_name: ${var.connection_name}
+        connector_type: CDC
+        data_staging_options:
+          catalog_name: ${var.dest_catalog}
+          schema_name: ${var.staging_schema}
+        objects:
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: fact_gl_line_detail
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: fact_k1_allocation_detail
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+
+  jobs:
+    auto_cdc_ingestion_2_job:
+      name: ${var.client_id}_auto_cdc_ingestion_2_job
+      tasks:
+        - task_key: cdc_ingestion_wide_facts
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.auto_cdc_ingestion_2_pipeline.id}
+          max_retries: 2
+          min_retry_interval_millis: 30000   # wait 5 min between attempts
+          retry_on_timeout: false
+      schedule:
+        quartz_cron_expression: '0 0 * * * ?'
+        timezone_id: UTC
+        pause_status: PAUSED                  # test pipeline: trigger manually
+      max_concurrent_runs: 1

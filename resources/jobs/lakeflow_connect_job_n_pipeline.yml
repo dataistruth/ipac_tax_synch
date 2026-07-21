@@ -1,0 +1,125 @@
+# =============================================================================
+# resources/jobs/lakeflow_connect_job_n_pipeline.yml
+#
+# Lakeflow Connect — Integrated CDC pipeline (Beta) + scheduled job, Client A
+#
+# Fixes in this version:
+#   1. Every table object has explicit destination_catalog / destination_schema
+#      (Beta applier does not fall back to pipeline-level catalog/schema).
+#   2. data_staging_options points the staging volume at client_a_staging
+#      instead of autocreating it inside client_a_raw.
+# =============================================================================
+
+variables:
+  client_id:
+    description: 'Client identifier'
+    default: client_a
+  connection_name:
+    description: 'Unity Catalog connection to the source SQL Server'
+    default: sql_server_lakeflow_connect
+  source_catalog:
+    description: 'Source SQL Server database name'
+    default: free-sql-db-0862313
+  source_schema:
+    description: 'Source schema'
+    default: dbo
+  dest_catalog:
+    description: 'Destination Unity Catalog catalog'
+    default: ipac_tax_synch
+  dest_schema:
+    description: 'Destination schema for raw synced tables'
+    default: client_a_raw
+  staging_schema:
+    description: 'Schema for the CDC staging volume'
+    default: client_a_staging
+
+resources:
+  pipelines:
+    client_a_integrated_cdc_pipeline:
+      name: ${var.client_id}_integrated_cdc
+      pipeline_type: MANAGED_INGESTION
+      channel: PREVIEW
+      serverless: true
+      catalog: ${var.dest_catalog}
+      schema: ${var.dest_schema}
+      ingestion_definition:
+        connection_name: ${var.connection_name}
+        connector_type: CDC
+        data_staging_options:
+          catalog_name: ${var.dest_catalog}
+          schema_name: ${var.staging_schema}
+        objects:
+          # primary_keys / sequence_by autodetected from source PKs.
+          # destination_table defaults to source_table (no renames needed).
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: partners
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: business_entities
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: partner_entity_ownership
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: tax_filing_periods
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: gl_transactions
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: k1_distributions
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: tax_adjustments
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: estimated_tax_payments
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: document_tracker
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: ${var.source_schema}
+              source_table: billing_engagements
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+
+  jobs:
+    client_a_integrated_cdc_job:
+      name: ${var.client_id}_integrated_cdc_job
+      tasks:
+        - task_key: cdc_ingestion
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.client_a_integrated_cdc_pipeline.id}
+      schedule:
+        quartz_cron_expression: '0 0 * * * ?'   # top of every hour
+        timezone_id: UTC
+      max_concurrent_runs: 1

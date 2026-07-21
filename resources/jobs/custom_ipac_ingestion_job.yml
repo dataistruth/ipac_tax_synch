@@ -1,0 +1,118 @@
+# =============================================================================
+# resources/jobs/jdbc_ingestion_job.yml
+#
+# Task 1: get_ingress_table_list — CT version check (pymssql)
+# Task 2: for_each_table — parallel JDBC ingest → raw Delta (one per table)
+# Task 3: refresh_silver — DLT pipeline: raw → streaming view → apply_changes → silver
+# Task 4: update_lakebase — commit CT versions after pipeline succeeds
+#
+# Deploy:  databricks bundle deploy -t prod --profile prod_w
+# =============================================================================
+
+resources:
+  pipelines:
+    silver_ingestion:
+      name: "[${bundle.target}] silver-ingestion-client_a"
+      catalog: "ipac_tax_synch"
+      target: "client_a_silver"
+      channel: "CURRENT"
+      photon: true
+      serverless: true
+
+      configuration:
+        client_name:   "client_a"
+        catalog:       "ipac_tax_synch"
+        raw_schema:    "client_a_raw"
+        target_schema: "client_a_silver"
+
+      libraries:
+        - notebook:
+            path: ../../src/common/notebooks/silver_ingestion.py
+
+      continuous: false
+
+  jobs:
+    jdbc_ingestion_job:
+      name: "[${bundle.target}] jdbc-ingestion-client_a"
+
+      parameters:
+        - name: client_name
+          default: "client_a"
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - pymssql
+              - psycopg2-binary
+
+      tasks:
+        # ─────────────────────────────────────────────────────────────────────
+        # Task 1: Check CT versions, build ingress table list
+        # ─────────────────────────────────────────────────────────────────────
+        - task_key: get_ingress_table_list
+          environment_key: default
+          notebook_task:
+            notebook_path: ../../src/common/notebooks/get_ingress_table_list.py
+            base_parameters:
+              client_name: "{{job.parameters.client_name}}"
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Task 2: Parallel JDBC ingest → raw Delta (one table per iteration)
+        # ─────────────────────────────────────────────────────────────────────
+        - task_key: for_each_table
+          depends_on:
+            - task_key: get_ingress_table_list
+          for_each_task:
+            inputs: "{{tasks.get_ingress_table_list.values.unload_list}}"
+            concurrency: 4
+            task:
+              task_key: jdbc_ingest_one_table
+              environment_key: default
+              notebook_task:
+                notebook_path: ../../src/common/notebooks/jdbc_ingest_one_table.py
+                base_parameters:
+                  client_name:         "{{job.parameters.client_name}}"
+                  src_schema_nm:       "{{input.src_schema_nm}}"
+                  src_tbl_nm:          "{{input.src_tbl_nm}}"
+                  primary_key:         "{{input.primary_key}}"
+                  select_cols:         "{{input.select_cols}}"
+                  partition_col:       "{{input.partition_col}}"
+                  tbl_size:            "{{input.tbl_size}}"
+                  effective_load_mode: "{{input.effective_load_mode}}"
+                  ct_version_from:     "{{input.ct_version_from}}"
+                  ct_version_to:       "{{input.ct_version_to}}"
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Task 3: DLT pipeline — raw → streaming view → apply_changes → silver
+        # ─────────────────────────────────────────────────────────────────────
+        - task_key: refresh_silver
+          depends_on:
+            - task_key: for_each_table
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.silver_ingestion.id}
+            full_refresh: false
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Task 4: Commit CT versions to Lakebase after pipeline succeeds
+        # ─────────────────────────────────────────────────────────────────────
+        - task_key: update_lakebase
+          depends_on:
+            - task_key: refresh_silver
+          environment_key: default
+          notebook_task:
+            notebook_path: ../../src/common/notebooks/update_lakebase.py
+            base_parameters:
+              client_name: "{{job.parameters.client_name}}"
+
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: "America/Chicago"
+        pause_status: PAUSED
+
+      email_notifications:
+        on_failure:
+          - you@yourcompany.com
+
+      max_concurrent_runs: 1
