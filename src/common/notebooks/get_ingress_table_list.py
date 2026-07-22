@@ -34,7 +34,7 @@ active_tables = fetch_all(client_schema=client_name, sql="""
     SELECT src_schema_nm, src_tbl_nm, primary_key,
            target_schema, target_tbl_nm, tbl_size,
            load_mode, scd_type, cluster_keys, select_cols,
-           sequence_key, last_ct_version, partition_col,
+           sequence_key, last_ct_version,
            track_deletes, load_priority
       FROM table_config
      WHERE is_active = 'Y'

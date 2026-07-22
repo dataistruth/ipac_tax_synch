@@ -34,8 +34,6 @@ CREATE TABLE IF NOT EXISTS client_a.table_config (
                                                           -- (default: SYS_CHANGE_VERSION)
     last_ct_version   bigint       NOT NULL DEFAULT 0,    -- 0 = never loaded -> snapshot
     -- ── additions ─────────────────────────────────────────────────────────────
-    partition_col     varchar(128),                       -- numeric col for parallel JDBC
-                                                          -- read (used when tbl_size <> small)
     track_deletes     char(1)      NOT NULL DEFAULT 'Y'  -- apply CT 'D' rows to target
                       CHECK (track_deletes IN ('Y','N')),
     load_priority     int          NOT NULL DEFAULT 100,  -- lower loads first (dims->facts)
@@ -98,26 +96,26 @@ ORDER BY task_type, object_nm, start_time DESC;
 -- -----------------------------------------------------------------------------
 INSERT INTO client_a.table_config
     (src_tbl_nm, primary_key, target_schema, target_tbl_nm,
-     tbl_size, load_mode, partition_col, load_priority, is_active, select_cols)
+     tbl_size, load_mode, load_priority, is_active, select_cols)
 VALUES
     -- ── dims (full reload, high priority) ────────────────────────────────────
-    ('partners',                 'partner_id',                    'client_a_raw', 'partners',                 'small',  'full', NULL,             10,  'Y',  '*'),
-    ('business_entities',        'entity_id',                     'client_a_raw', 'business_entities',        'small',  'full', NULL,             10,  'Y',  '*'),
-    ('partner_entity_ownership', 'entity_id,partner_id',          'client_a_raw', 'partner_entity_ownership', 'small',  'full', NULL,             20,  'Y',  '*'),
-    ('tax_filing_periods',       'filing_id',                     'client_a_raw', 'tax_filing_periods',       'small',  'full', NULL,             20,  'Y',  '*'),
+    ('partners',                 'partner_id',                    'client_a_raw', 'partners',                 'small',  'full', 10,  'Y',  '*'),
+    ('business_entities',        'entity_id',                     'client_a_raw', 'business_entities',        'small',  'full', 10,  'Y',  '*'),
+    ('partner_entity_ownership', 'entity_id,partner_id',          'client_a_raw', 'partner_entity_ownership', 'small',  'full', 20,  'Y',  '*'),
+    ('tax_filing_periods',       'filing_id',                     'client_a_raw', 'tax_filing_periods',       'small',  'full', 20,  'Y',  '*'),
 
     -- ── transactional (CT incremental) ───────────────────────────────────────
-    ('gl_transactions',          'transaction_id',                'client_a_raw', 'gl_transactions',          'medium', 'incr', 'transaction_id', 100, 'Y',  '*'),
-    ('k1_distributions',         'entity_id,partner_id,tax_year', 'client_a_raw', 'k1_distributions',         'small',  'incr', NULL,             100, 'Y',  '*'),
-    ('tax_adjustments',          'adjustment_id',                 'client_a_raw', 'tax_adjustments',          'small',  'incr', NULL,             100, 'Y',  '*'),
-    ('estimated_tax_payments',   'payment_id',                    'client_a_raw', 'estimated_tax_payments',   'small',  'incr', NULL,             100, 'Y',  '*'),
-    ('document_tracker',         'document_id',                   'client_a_raw', 'document_tracker',         'small',  'incr', NULL,             100, 'Y',  '*'),
-    ('billing_engagements',      'engagement_id',                 'client_a_raw', 'billing_engagements',      'small',  'incr', NULL,             100, 'Y',  '*'),
+    ('gl_transactions',          'transaction_id',                'client_a_raw', 'gl_transactions',          'medium', 'incr', 100, 'Y',  '*'),
+    ('k1_distributions',         'entity_id,partner_id,tax_year', 'client_a_raw', 'k1_distributions',         'small',  'incr', 100, 'Y',  '*'),
+    ('tax_adjustments',          'adjustment_id',                 'client_a_raw', 'tax_adjustments',          'small',  'incr', 100, 'Y',  '*'),
+    ('estimated_tax_payments',   'payment_id',                    'client_a_raw', 'estimated_tax_payments',   'small',  'incr', 100, 'Y',  '*'),
+    ('document_tracker',         'document_id',                   'client_a_raw', 'document_tracker',         'small',  'incr', 100, 'Y',  '*'),
+    ('billing_engagements',      'engagement_id',                 'client_a_raw', 'billing_engagements',      'small',  'incr', 100, 'Y',  '*'),
 
     -- ── wide fact tables (inactive; select_cols keeps PK within 32-col window)
-    ('fact_gl_line_detail',        'gl_line_id',  'client_a_raw', 'fact_gl_line_detail',        'large', 'incr', 'gl_line_id', 200, 'N',
+    ('fact_gl_line_detail',        'gl_line_id',  'client_a_raw', 'fact_gl_line_detail',        'large', 'incr', 200, 'N',
      'gl_line_id,transaction_id,entity_id,partner_id,account_code,amount,line_description,posting_date'),
-    ('fact_k1_allocation_detail',  'k1_alloc_id', 'client_a_raw', 'fact_k1_allocation_detail',  'large', 'incr', NULL,         200, 'N',
+    ('fact_k1_allocation_detail',  'k1_alloc_id', 'client_a_raw', 'fact_k1_allocation_detail',  'large', 'incr', 200, 'N',
      'k1_alloc_id,entity_id,partner_id,tax_year,allocation_type,allocated_amount,effective_date')
 ON CONFLICT (src_schema_nm, src_tbl_nm) DO NOTHING;
 

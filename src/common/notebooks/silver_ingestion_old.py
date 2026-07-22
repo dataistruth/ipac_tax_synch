@@ -35,7 +35,7 @@ if repo_root not in sys.path:
 
 import importlib
 from src.utils.lakebase.connection import fetch_all, execute
-from src.utils.sqlserver.connection import jdbc_read, jdbc_read_table
+from src.utils.sqlserver.connection import jdbc_read
 
 client_module = importlib.import_module(f"config.clients.{client_name}.connection")
 CONNECTION    = client_module.CONNECTION
@@ -55,7 +55,7 @@ print(f"Target:  {catalog}.{target_schema}")
 table_configs = fetch_all(client_schema=client_name, sql="""
     SELECT src_schema_nm, src_tbl_nm, target_tbl_nm,
            primary_key, scd_type, sequence_key, select_cols,
-           cluster_keys, track_deletes, partition_col, tbl_size,
+           cluster_keys, track_deletes, tbl_size,
            load_mode, last_ct_version
       FROM table_config
      WHERE is_active = 'Y'
@@ -95,8 +95,6 @@ for tbl in table_configs:
     select_cols  = tbl.get("select_cols", "*")
     cluster_keys = tbl.get("cluster_keys")
     track_del    = tbl.get("track_deletes", "Y")
-    part_col     = tbl.get("partition_col")
-    tbl_size     = tbl.get("tbl_size", "small")
     last_ct      = int(tbl["last_ct_version"])
 
     fq_source    = f"[{schema_nm}].[{src_table}]"
@@ -134,15 +132,11 @@ for tbl in table_configs:
 
     # ── Step 1: @dp.temporary_view — JDBC read from SQL Server ────────────
     @dp.temporary_view(name=staged_name)
-    def staged_view(q=jdbc_query, incr=is_incr, p_col=part_col,
-                    t_size=tbl_size, ct_ver=db_ct_version):
+    def staged_view(q=jdbc_query, incr=is_incr, ct_ver=db_ct_version):
         if incr:
             df = jdbc_read(spark, source, q)
         else:
-            pc = p_col if p_col else None
-            np = 4 if t_size in ("medium", "large") and pc else None
-            df = jdbc_read_table(spark, source, q,
-                                 partition_col=pc, num_partitions=np)
+            df = jdbc_read(spark, source, q)
             df = (df.withColumn("_ct_op", lit("I"))
                     .withColumn("_ct_version", lit(ct_ver)))
         return df

@@ -1,40 +1,33 @@
 # =============================================================================
-# src/common/utils/lakebase/connection.py
+# src/utils/lakebase/connection.py
 #
 # Lakebase (PostgreSQL) connection helper.
-# Host, port, database, username, password come from config/base_config.py.
-# Auth: direct username/password (dbutils.credentials.getToken() does NOT
-#       work for Lakebase — confirmed during testing).
+# Host/port/database from config/base_config.py; credentials from secret scope.
 # =============================================================================
 
 import psycopg2
 import psycopg2.extras
 from config.base_config import BASE_CONFIG
+from src.utils.secrets import get_credentials
 
 
-def get_connection(client_schema: str = None):
+def get_connection(client_schema: str = None, dbutils=None):
     """
-    Returns a psycopg2 connection to Lakebase (ipac_control_db).
-    No dbutils needed — credentials come from BASE_CONFIG.
+    Returns a psycopg2 connection to Lakebase.
 
     Args:
-        client_schema  : if set, search_path is pinned so queries skip
-                         schema prefix  (e.g. 'client_a')
-
-    Usage:
-        with get_connection("client_a") as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT * FROM table_config WHERE is_active = 'Y'")
-                rows = [dict(r) for r in cur.fetchall()]
+        client_schema : if set, search_path is pinned (e.g. 'client_a')
+        dbutils       : optional; auto-detected in Databricks notebooks
     """
     lb = BASE_CONFIG["lakebase"]
+    creds = get_credentials(lb, dbutils=dbutils)
 
     conn = psycopg2.connect(
         host            = lb["host"],
         port            = lb["port"],
         dbname          = lb["database"],
-        user            = lb["username"],
-        password        = lb["password"],
+        user            = creds["username"],
+        password        = creds["password"],
         sslmode         = "require",
         cursor_factory  = psycopg2.extras.RealDictCursor,
         connect_timeout = 10,
@@ -48,17 +41,17 @@ def get_connection(client_schema: str = None):
     return conn
 
 
-def fetch_all(client_schema: str, sql: str, params=None) -> list[dict]:
+def fetch_all(client_schema: str, sql: str, params=None, dbutils=None) -> list[dict]:
     """Convenience: connect, query, return list of dicts, close."""
-    with get_connection(client_schema) as conn:
+    with get_connection(client_schema, dbutils=dbutils) as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params or ())
             return [dict(row) for row in cur.fetchall()]
 
 
-def execute(client_schema: str, sql: str, params=None):
+def execute(client_schema: str, sql: str, params=None, dbutils=None):
     """Convenience: connect, execute (INSERT/UPDATE/DELETE), commit, close."""
-    with get_connection(client_schema) as conn:
+    with get_connection(client_schema, dbutils=dbutils) as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params or ())
         conn.commit()

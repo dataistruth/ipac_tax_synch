@@ -1,184 +1,199 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 02 - Ingest Table (CT-based) + SCD1 Merge
+# MAGIC # 02 - Ingest Table (SQL Server → Delta)
+# MAGIC - **full** load: Delta overwrite (`full_load`)
+# MAGIC - **incr** load: CT-based SCD1 merge + deletes
 # MAGIC Runs once **per table** inside the job's `for_each` task.
 # MAGIC
-# MAGIC Flow:
-# MAGIC 1. Parse the table config passed by the for_each input
-# MAGIC 2. Decide load mode:
-# MAGIC    - `load_type = 'full'`            -> full extract every run
-# MAGIC    - `last_ct_version IS NULL`       -> first run: full extract + capture current CT version
-# MAGIC    - otherwise                       -> incremental via `CHANGETABLE(CHANGES ...)`
-# MAGIC 3. Write to `client_a_silver_custom` using the common `scd1_merge` / `full_load`
-# MAGIC 4. Update CT watermark + process log in Lakebase
+# MAGIC Credentials:
+# MAGIC - SQL Server: `config/clients/{client_id}/connection.py` + `client-a-secrets`
+# MAGIC - Lakebase: `config/base_config.py` + `client-a-secrets`
 
 # COMMAND ----------
+
+import importlib
 import json
 import sys
-import traceback
-from datetime import datetime, timezone
 
-sys.path.append("../..")   # so `src.utils` resolves when run from notebook1/
+dbutils.widgets.text("table_config", "{}")
+dbutils.widgets.text("dest_catalog", "")
 
-from src.utils.common_functions import (
-    scd1_merge,
-    full_load,
-    execute_lakebase_dml,
-)
-
-# COMMAND ----------
-# -- Parameters ---------------------------------------------------------------
-dbutils.widgets.text("table_config", "{}")   # injected by for_each: {{input}}
 cfg = json.loads(dbutils.widgets.get("table_config"))
+dest_catalog_param = dbutils.widgets.get("dest_catalog").strip()
 
-table_id       = cfg["table_id"]
-client_id      = cfg["client_id"]
-src_schema     = cfg["source_schema"]
-src_table      = cfg["source_table"]
-primary_keys   = [c.strip() for c in cfg["primary_keys"].split(",")]
-sequence_key   = cfg.get("sequence_key") or None
-cluster_by     = [c.strip() for c in cfg["cluster_by"].split(",")] if cfg.get("cluster_by") else None
-load_type      = cfg["load_type"]                       # 'full' | 'incremental'
-last_ct_version = cfg.get("last_ct_version")            # None => first load
-
-TARGET_SCHEMA = f"{client_id}_silver_custom"            # e.g. client_a_silver_custom
-TARGET_TABLE  = f"main.{TARGET_SCHEMA}.{src_table}"     # adjust catalog as needed
-
-# -- Connections (secrets) ----------------------------------------------------
-SQL_URL  = dbutils.secrets.get("sqlserver", "jdbc_url")  # jdbc:sqlserver://host;databaseName=db
-SQL_USER = dbutils.secrets.get("sqlserver", "user")
-SQL_PWD  = dbutils.secrets.get("sqlserver", "password")
-
-LB_URL  = dbutils.secrets.get("lakebase", "jdbc_url")
-LB_USER = dbutils.secrets.get("lakebase", "user")
-LB_PWD  = dbutils.secrets.get("lakebase", "password")
-
-run_id = dbutils.notebook.entry_point.getDbutils().notebook().getContext() \
-    .currentRunId().toString() if True else "manual"
+table_id        = cfg["table_id"]
+client_id       = cfg["client_id"]
+src_schema      = cfg["source_schema"]
+src_table       = cfg["source_table"]
+primary_keys    = [c.strip() for c in cfg["primary_keys"].split(",")]
+sequence_key    = cfg.get("sequence_key") or None
+cluster_by      = (
+    [c.strip() for c in cfg["cluster_by"].split(",")]
+    if cfg.get("cluster_by") else None
+)
+load_type       = cfg["load_type"]
+_raw_ct_version = cfg.get("last_ct_version")
+if _raw_ct_version in (None, "", 0):
+    last_ct_version = None
+else:
+    last_ct_version = int(_raw_ct_version)
 
 # COMMAND ----------
-# -- Helpers ------------------------------------------------------------------
-def sql_server_query(query: str):
-    """Run a query against SQL Server via JDBC and return a DataFrame."""
-    return (
-        spark.read.format("jdbc")
-        .option("url", SQL_URL)
-        .option("driver", "com.microsoft.sqlserver.jdbc.SQLServerDriver")
-        .option("query", query)
-        .option("user", SQL_USER)
-        .option("password", SQL_PWD)
-        .load()
+
+nb_path   = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+repo_root = "/Workspace" + nb_path.rsplit("/src/", 1)[0]
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+
+from config.base_config import BASE_CONFIG
+from src.utils.common_functions import full_load, scd1_merge
+from src.utils.lakebase.connection import execute
+from src.utils.lakebase.process_log import write_process_log
+from src.utils.sqlserver.connection import jdbc_read
+
+client_module = importlib.import_module(f"config.clients.{client_id}.connection")
+source = client_module.CONNECTION["source"]
+
+# Source schema: per-table from Lakebase table_config; fallback to connection.py default
+if not src_schema:
+    src_schema = source.get("schema", "dbo")
+
+CATALOG = dest_catalog_param or BASE_CONFIG.get("dest_catalog", "")
+if not CATALOG:
+    raise ValueError(
+        "dest_catalog is required. Pass job parameter dest_catalog "
+        "(bundle var: ${var.dest_catalog}) or set base_config.dest_catalog."
     )
 
+TARGET_SCHEMA = f"{client_id}_silver_custom"
+TARGET_TABLE  = f"{CATALOG}.{TARGET_SCHEMA}.{src_table}"
 
-def log_progress(status: str, message: str = None, rows: int = None,
-                 ct_version: int = None):
-    """Insert a row into the Lakebase process log."""
-    execute_lakebase_dml(
-        LB_URL, LB_USER, LB_PWD,
-        """
-        INSERT INTO config.process_log
-            (run_id, client_id, table_id, source_table, status,
-             message, row_count, ct_version, logged_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (run_id, client_id, table_id, src_table, status,
-         message, rows, ct_version, datetime.now(timezone.utc)),
+try:
+    ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+    job_run_id = str(ctx.jobRunId().getOrElse("interactive"))
+    task_run_id = str(ctx.currentRunId().getOrElse("manual"))
+except Exception:
+    job_run_id = "interactive"
+    task_run_id = "manual"
+
+print(f"Source: {source['host']} / {source['database']} / schema={src_schema}")
+print(f"Catalog: {CATALOG}")
+print(f"Target: {TARGET_TABLE}")
+print(f"Table:  {src_schema}.{src_table}  load_type={load_type}  last_ct={last_ct_version}")
+
+# COMMAND ----------
+
+def sql_server_query(query: str):
+    """Run a query against SQL Server via JDBC and return a DataFrame."""
+    return jdbc_read(spark, source, query, dbutils=dbutils)
+
+
+def log_progress(
+    status: str,
+    message: str | None = None,
+    rows: int | None = None,
+    ct_version: int | None = None,
+    load_mode: str | None = None,
+):
+    """Insert a row into the client process_log table in Lakebase."""
+    write_process_log(
+        client_schema=client_id,
+        job_id=job_run_id,
+        task_id=task_run_id,
+        object_nm=src_table,
+        status=status,
+        message=message,
+        load_mode=load_mode or load_type,
+        ct_version_to=ct_version,
+        rows_written=rows,
+        dbutils=dbutils,
     )
 
 
 def update_watermark(new_version: int):
-    """Persist the CT version we've loaded up to."""
-    execute_lakebase_dml(
-        LB_URL, LB_USER, LB_PWD,
-        """
-        UPDATE config.table_config
-        SET    last_ct_version = %s, last_loaded_at = %s
-        WHERE  table_id = %s
+    """Persist the CT version loaded up to for this table."""
+    execute(
+        client_schema=client_id,
+        dbutils=dbutils,
+        sql="""
+            UPDATE table_config
+               SET last_ct_version = %s,
+                   last_status     = 'SUCCESS',
+                   update_dttm     = now()
+             WHERE src_schema_nm = %s
+               AND src_tbl_nm    = %s
         """,
-        (new_version, datetime.now(timezone.utc), table_id),
+        params=(new_version, src_schema, src_table),
     )
 
 # COMMAND ----------
-# -- Main ---------------------------------------------------------------------
-log_progress("STARTED")
+
+log_progress("RUNNING", load_mode=load_type)
+result = {}
 
 try:
-    spark.sql(f"CREATE SCHEMA IF NOT EXISTS main.{TARGET_SCHEMA}")
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{TARGET_SCHEMA}")
 
-    # 1) Capture the current CT version BEFORE extracting, so changes that land
-    #    mid-extract are picked up next run instead of being skipped.
-    current_version = sql_server_query(
-        "SELECT CHANGE_TRACKING_CURRENT_VERSION() AS v"
-    ).collect()[0]["v"]
+    current_version = int(
+        sql_server_query("SELECT CHANGE_TRACKING_CURRENT_VERSION() AS v")
+        .collect()[0]["v"]
+    )
 
-    is_full = (load_type == "full") or (last_ct_version is None)
-
-    if is_full:
-        # ---- FULL extract ---------------------------------------------------
+    if load_type == "full":
         df = sql_server_query(f"SELECT * FROM [{src_schema}].[{src_table}]")
-        row_count = df.count()
+        result = full_load(spark, df, TARGET_TABLE, cluster_by=cluster_by)
+    elif last_ct_version is None:
+        df = sql_server_query(f"SELECT * FROM [{src_schema}].[{src_table}]")
+        result = scd1_merge(
+            spark, df, TARGET_TABLE,
+            primary_keys=primary_keys,
+            sequence_key=sequence_key,
+            cluster_by=cluster_by,
+        )
+    else:
+        min_valid_raw = sql_server_query(
+            f"SELECT CHANGE_TRACKING_MIN_VALID_VERSION("
+            f"OBJECT_ID('{src_schema}.{src_table}')) AS v"
+        ).collect()[0]["v"]
+        min_valid = int(min_valid_raw) if min_valid_raw is not None else None
 
-        if load_type == "full":
-            result = full_load(spark, df, TARGET_TABLE, cluster_by=cluster_by)
-        else:
-            # first-time load of an incremental table -> seed via scd1
+        if min_valid is not None and last_ct_version < min_valid:
+            log_progress(
+                "SKIPPED",
+                message=f"CT version {last_ct_version} < min valid {min_valid}; full re-seed",
+                load_mode=load_type,
+            )
+            df = sql_server_query(f"SELECT * FROM [{src_schema}].[{src_table}]")
             result = scd1_merge(
                 spark, df, TARGET_TABLE,
                 primary_keys=primary_keys,
                 sequence_key=sequence_key,
                 cluster_by=cluster_by,
             )
-
-    else:
-        # ---- INCREMENTAL via Change Tracking --------------------------------
-        # Validate the stored version is still within retention; if the min
-        # valid version has moved past it, CT can no longer produce a complete
-        # delta and we must fall back to a full re-seed.
-        min_valid = sql_server_query(
-            f"SELECT CHANGE_TRACKING_MIN_VALID_VERSION("
-            f"OBJECT_ID('{src_schema}.{src_table}')) AS v"
-        ).collect()[0]["v"]
-
-        if min_valid is not None and last_ct_version < min_valid:
-            log_progress("WARN", f"CT version {last_ct_version} < min valid "
-                                 f"{min_valid}; falling back to full re-seed")
-            df = sql_server_query(f"SELECT * FROM [{src_schema}].[{src_table}]")
-            row_count = df.count()
-            result = scd1_merge(spark, df, TARGET_TABLE,
-                                primary_keys=primary_keys,
-                                sequence_key=sequence_key,
-                                cluster_by=cluster_by)
         else:
             join_on = " AND ".join(f"t.[{k}] = ct.[{k}]" for k in primary_keys)
-            ct_keys = ", ".join(f"ct.[{k}] AS [__ct_{k}]" for k in primary_keys)
-            ct_query = f"""
-                SELECT t.*,
-                       {ct_keys},
-                       ct.SYS_CHANGE_OPERATION AS __op,
-                       ct.SYS_CHANGE_VERSION   AS __ct_version
-                FROM   CHANGETABLE(CHANGES [{src_schema}].[{src_table}],
-                                   {last_ct_version}) AS ct
-                LEFT JOIN [{src_schema}].[{src_table}] AS t
-                       ON {join_on}
-            """
-            changes = sql_server_query(ct_query)
-            row_count = changes.count()
 
-            if row_count == 0:
+            op_types = {
+                row["__op"]
+                for row in sql_server_query(f"""
+                    SELECT DISTINCT ct.SYS_CHANGE_OPERATION AS __op
+                    FROM   CHANGETABLE(CHANGES [{src_schema}].[{src_table}],
+                                       {last_ct_version}) AS ct
+                """).collect()
+            }
+
+            if not op_types:
                 result = {"operation": "no_changes"}
             else:
-                # Deletes: rows where SYS_CHANGE_OPERATION = 'D'
-                # (source row is gone, so keys come from the __ct_* columns)
-                ct_key_cols = [f"__ct_{k}" for k in primary_keys]
-                deletes = (changes.filter("__op = 'D'")
-                                  .select(*[F_col for F_col in ct_key_cols]))
-                deletes = deletes.toDF(*primary_keys)  # rename __ct_x -> x
-
-                upserts = (changes.filter("__op != 'D'")
-                                  .drop("__op", "__ct_version", *ct_key_cols))
-
-                if upserts.limit(1).count() > 0:
+                if any(op != "D" for op in op_types):
+                    upserts = sql_server_query(f"""
+                        SELECT t.*
+                        FROM   CHANGETABLE(CHANGES [{src_schema}].[{src_table}],
+                                           {last_ct_version}) AS ct
+                        INNER JOIN [{src_schema}].[{src_table}] AS t
+                                ON {join_on}
+                        WHERE  ct.SYS_CHANGE_OPERATION != 'D'
+                    """)
                     result = scd1_merge(
                         spark, upserts, TARGET_TABLE,
                         primary_keys=primary_keys,
@@ -188,8 +203,14 @@ try:
                 else:
                     result = {"operation": "deletes_only"}
 
-                # SCD1 delete propagation (optional but usually wanted with CT)
-                if deletes.limit(1).count() > 0:
+                if "D" in op_types:
+                    delete_cols = ", ".join(f"ct.[{k}]" for k in primary_keys)
+                    deletes = sql_server_query(f"""
+                        SELECT {delete_cols}
+                        FROM   CHANGETABLE(CHANGES [{src_schema}].[{src_table}],
+                                           {last_ct_version}) AS ct
+                        WHERE  ct.SYS_CHANGE_OPERATION = 'D'
+                    """)
                     deletes.createOrReplaceTempView("__del_keys")
                     on = " AND ".join(f"t.`{k}` = d.`{k}`" for k in primary_keys)
                     spark.sql(f"""
@@ -199,14 +220,18 @@ try:
                         WHEN MATCHED THEN DELETE
                     """)
 
-    # 2) Advance the watermark only after a successful write
     update_watermark(current_version)
-    log_progress("SUCCESS",
-                 message=str(result.get("operation")),
-                 rows=row_count if 'row_count' in dir() else None,
-                 ct_version=current_version)
+    log_progress(
+        "SUCCESS",
+        message=str(result.get("operation")),
+        ct_version=current_version,
+        load_mode=load_type,
+    )
 
-except Exception as e:
-    log_progress("FAILED", message=f"{type(e).__name__}: {e}\n"
-                                   f"{traceback.format_exc()[:2000]}")
+except Exception as exc:
+    log_progress(
+        "FAILED",
+        message=f"{type(exc).__name__}: {exc}",
+        load_mode=load_type,
+    )
     raise

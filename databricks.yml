@@ -50,6 +50,12 @@ variables:
   whl_volume:
     default: '/Volumes/ipac_tax_synch/libraries/wheels'
     description: 'UC Volume path where wheel is stored'
+  ingestion_for_each_concurrency:
+    default: 10
+    description: 'Max parallel table ingest tasks in for_each'
+  client_id:
+    default: client_a
+    description: 'Client name for job/pipeline naming and tags'
 
 # ── Targets ───────────────────────────────────────────────────────────────────
 targets:
@@ -64,6 +70,6 @@ targets:
       root_path: /Workspace/Shared/ipac_tax_synch/prod   # ← fixed YAML formatting
     default: true
     variables:
-      dest_schema:    'client_a_raw'
-      staging_schema: 'client_a_staging'
+      dest_schema:    'client_a_raw_auto'
+      staging_schema: 'client_a_staging_auto'
       whl_volume:     '/Volumes/ipac_tax_synch/libraries/wheels'

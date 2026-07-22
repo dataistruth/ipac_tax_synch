@@ -11,9 +11,6 @@
 # =============================================================================
 
 variables:
-  client_id:
-    description: 'Client identifier'
-    default: client_a
   connection_name:
     description: 'Unity Catalog connection to the source SQL Server'
     default: sql_server_lakeflow_connect
@@ -28,15 +25,17 @@ variables:
     default: ipac_tax_synch
   dest_schema:
     description: 'Destination schema for raw synced tables'
-    default: client_a_raw
+    default: client_a_raw_auto
   staging_schema:
     description: 'Schema for the CDC staging volume'
-    default: client_a_staging
+    default: client_a_staging_auto
 
 resources:
   pipelines:
     client_a_integrated_cdc_pipeline:
       name: ${var.client_id}_integrated_cdc
+      tags:
+        client_name: ${var.client_id}
       pipeline_type: MANAGED_INGESTION
       channel: PREVIEW
       serverless: true
@@ -114,12 +113,15 @@ resources:
 
   jobs:
     client_a_integrated_cdc_job:
-      name: ${var.client_id}_integrated_cdc_job
+      name: job_${var.client_id}_integrated_cdc
+      tags:
+        client_name: ${var.client_id}
       tasks:
         - task_key: cdc_ingestion
           pipeline_task:
             pipeline_id: ${resources.pipelines.client_a_integrated_cdc_pipeline.id}
       schedule:
-        quartz_cron_expression: '0 0 * * * ?'   # top of every hour
+        quartz_cron_expression: '0 0 * * * ?'   # top of every hour (UTC)
         timezone_id: UTC
+        pause_status: PAUSED                    # manual trigger only
       max_concurrent_runs: 1

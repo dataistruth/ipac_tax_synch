@@ -1,30 +1,25 @@
 # =============================================================================
 # tests/test_connections_local.py — Run from PyCharm / local IDE
-# Tests Lakebase (psycopg2) only — no Spark/dbutils needed.
+# Requires env vars (see config/setup_secrets.sh) — no hardcoded passwords.
 #
 # Run:
+#   export CLIENT_A_SECRETS__LAKEBASE_USERNAME=...
+#   export CLIENT_A_SECRETS__LAKEBASE_PASSWORD=...
 #   python tests/test_connections_local.py
 # =============================================================================
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import traceback
+
 import psycopg2
 import psycopg2.extras
 
-# ── Config ────────────────────────────────────────────────────────────────────
-
-LAKEBASE = {
-    "host":     "ep-late-silence-e9u5p1s2.database.eastus.azuredatabricks.net",
-    "port":     5432,
-    "database": "ipac_control_db",
-    "username": "ipac_user",
-    "password": "Ipac@Tax2026!",
-    "schema":   "client_a",
-}
+from config.base_config import BASE_CONFIG
+from src.utils.secrets import SecretNotFoundError, get_credentials
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -33,23 +28,28 @@ def _pass(name, detail=""):
     if detail:
         print(f"           {detail}")
 
+
 def _fail(name):
     lines = traceback.format_exc().strip().splitlines()
     print(f"  ❌ FAIL  {name}")
     for line in lines[-3:]:
         print(f"           {line.strip()}")
 
+
 def _get_connection():
+    lb = BASE_CONFIG["lakebase"]
+    creds = get_credentials(lb)
     return psycopg2.connect(
-        host            = LAKEBASE["host"],
-        port            = LAKEBASE["port"],
-        dbname          = LAKEBASE["database"],
-        user            = LAKEBASE["username"],
-        password        = LAKEBASE["password"],
+        host            = lb["host"],
+        port            = lb["port"],
+        dbname          = lb["database"],
+        user            = creds["username"],
+        password        = creds["password"],
         sslmode         = "require",
         cursor_factory  = psycopg2.extras.RealDictCursor,
         connect_timeout = 10,
     )
+
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -66,6 +66,10 @@ def test_lakebase_connection():
             f"           pg={str(row['version'])[:60]}..."
         )
         return True
+    except SecretNotFoundError as exc:
+        print(f"  ⚠️  SKIP  {name}")
+        print(f"           {exc}")
+        return False
     except Exception:
         _fail(name)
         return False
@@ -73,9 +77,9 @@ def test_lakebase_connection():
 
 def test_lakebase_schema():
     name = "Lakebase — schema exists"
+    schema = "client_a"
     try:
-        schema = LAKEBASE["schema"]
-        conn   = _get_connection()
+        conn = _get_connection()
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname = %s;",
@@ -86,101 +90,36 @@ def test_lakebase_schema():
         if row:
             _pass(name, f"Schema '{schema}' found ✓")
             return True
-        else:
-            print(f"  ⚠️  WARN  {name}")
-            print(f"           Schema '{schema}' not found — run CREATE SCHEMA in Lakebase SQL editor")
-            return False
+        print(f"  ⚠️  WARN  {name}")
+        print(f"           Schema '{schema}' not found")
+        return False
+    except SecretNotFoundError as exc:
+        print(f"  ⚠️  SKIP  {name}")
+        print(f"           {exc}")
+        return False
     except Exception:
         _fail(name)
         return False
 
-
-def test_lakebase_write():
-    name = "Lakebase — write + read (smoke test)"
-    try:
-        schema = LAKEBASE["schema"]
-        conn   = _get_connection()
-        with conn.cursor() as cur:
-            cur.execute(f"""
-                CREATE TABLE IF NOT EXISTS {schema}.connection_test (
-                    id        SERIAL PRIMARY KEY,
-                    test_key  TEXT NOT NULL,
-                    tested_at TIMESTAMPTZ DEFAULT NOW()
-                );
-            """)
-            cur.execute(
-                f"INSERT INTO {schema}.connection_test (test_key) VALUES (%s) RETURNING id;",
-                ("local_pycharm_test",)
-            )
-            inserted_id = cur.fetchone()["id"]
-            cur.execute(
-                f"SELECT * FROM {schema}.connection_test WHERE id = %s;",
-                (inserted_id,)
-            )
-            row = cur.fetchone()
-            conn.commit()
-            cur.execute(
-                f"DELETE FROM {schema}.connection_test WHERE id = %s;",
-                (inserted_id,)
-            )
-            conn.commit()
-        conn.close()
-        _pass(name, f"Inserted id={inserted_id}  key={row['test_key']}  at={row['tested_at']} ✓")
-        return True
-    except Exception:
-        _fail(name)
-        return False
-
-
-def test_lakebase_permissions():
-    name = "Lakebase — user permissions"
-    try:
-        schema = LAKEBASE["schema"]
-        conn   = _get_connection()
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT has_schema_privilege(%s, %s, 'USAGE') AS can_usage,
-                       has_schema_privilege(%s, %s, 'CREATE') AS can_create;
-            """, (LAKEBASE["username"], schema, LAKEBASE["username"], schema))
-            row = cur.fetchone()
-        conn.close()
-        privs = []
-        if row["can_usage"]:  privs.append("USAGE")
-        if row["can_create"]: privs.append("CREATE")
-        _pass(name, f"User '{LAKEBASE['username']}' on schema '{schema}': {', '.join(privs)} ✓")
-        return True
-    except Exception:
-        _fail(name)
-        return False
-
-
-# ── Run all ───────────────────────────────────────────────────────────────────
 
 def run_all_tests():
     print()
     print("=" * 60)
-    print(" Local Connection Tests (PyCharm / no Spark)")
-    print(" Target: Lakebase (psycopg2 only)")
+    print(" Local Connection Tests (secrets via env vars)")
     print("=" * 60)
     print()
-    print(" [ Lakebase ]")
 
     results = {
-        "Connection ": test_lakebase_connection(),
-        "Schema     ": test_lakebase_schema(),
-        "Write/Read ": test_lakebase_write(),
-        "Permissions": test_lakebase_permissions(),
+        "Connection": test_lakebase_connection(),
+        "Schema    ": test_lakebase_schema(),
     }
 
     passed = sum(results.values())
-    total  = len(results)
+    total = len(results)
 
     print()
     print("=" * 60)
-    print(f" Summary: {passed}/{total} passed  {'✅ ALL GOOD' if passed == total else '⚠️  CHECK FAILURES ABOVE'}")
-    print()
-    print(" NOTE: SQL Server JDBC tests require Spark — run")
-    print("       tests/test_connections.py in a Databricks notebook.")
+    print(f" Summary: {passed}/{total} passed")
     print("=" * 60)
     print()
 

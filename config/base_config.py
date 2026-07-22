@@ -1,28 +1,27 @@
 # =============================================================================
 # config/base_config.py — Shared defaults inherited by all clients
+# Credentials: Databricks secret scope (see config/setup_secrets.sh)
 # =============================================================================
+
+SECRET_SCOPE = "client-a-secrets"
 
 BASE_CONFIG = {
 
     # ── Lakebase (Neon Postgres) ──────────────────────────────────────────────
-    # Shared instance — one schema per client (e.g. client_a, client_b)
-    # DEMO: credentials hardcoded — move to Databricks secret scope for prod
     "lakebase": {
-        "host":     "ep-late-silence-e9u5p1s2.database.eastus.azuredatabricks.net",
+        "host":     "ep-divine-flower-d2b43f3x.database.us-east-1.cloud.databricks.com",
         "port":     5432,
-        "database": "ipac_control_db",
-        "username": "ipac_user",
-        "password": "Ipac@Tax2026!",
-        "jdbc_options": {
-            "sslmode": "require",
+        "database": "databricks_postgres",
+        "secret_scope": SECRET_SCOPE,
+        "secret_keys": {
+            "username": "lakebase-username",
+            "password": "lakebase-password",
         },
-        # TODO prod: replace username/password with secret scope references
-        # "akv_scope":   "ipac-lakebase-secrets",
-        # "secret_keys": {"username": "lakebase-username", "password": "lakebase-password"},
     },
 
     # ── Databricks / Unity Catalog ────────────────────────────────────────────
-    "catalog":           "main",
+    "catalog":           "ipac_tax_synch",
+    "dest_catalog":      "ipac_tax_synch",
     "raw_schema_prefix": "raw_",
 
     # ── Pipeline defaults ─────────────────────────────────────────────────────

@@ -12,11 +12,12 @@
 # NOTE: Variables are defined once in lakeflow_connect_job_n_pipeline.yml
 # and shared bundle-wide — do NOT redefine them here.
 # =============================================================================
-
 resources:
   pipelines:
     auto_cdc_ingestion_3_pipeline:
       name: ${var.client_id}_auto_cdc_ingestion_3_slim
+      tags:
+        client_name: ${var.client_id}
       pipeline_type: MANAGED_INGESTION
       channel: PREVIEW
       serverless: true
@@ -116,7 +117,9 @@ resources:
 
   jobs:
     auto_cdc_ingestion_3_job:
-      name: ${var.client_id}_auto_cdc_ingestion_3_slim_job
+      name: job_${var.client_id}_auto_cdc_ingestion_3_slim
+      tags:
+        client_name: ${var.client_id}
       tasks:
         - task_key: cdc_ingestion_slim_facts
           pipeline_task:

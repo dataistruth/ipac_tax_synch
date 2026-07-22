@@ -19,6 +19,8 @@ resources:
   pipelines:
     auto_cdc_ingestion_4_pipeline:
       name: ${var.client_id}_auto_cdc_ingestion_4_reordered
+      tags:
+        client_name: ${var.client_id}
       pipeline_type: MANAGED_INGESTION
       channel: PREVIEW
       serverless: true
@@ -143,7 +145,9 @@ resources:
 
   jobs:
     auto_cdc_ingestion_4_job:
-      name: ${var.client_id}_auto_cdc_ingestion_4_reordered_job
+      name: job_${var.client_id}_auto_cdc_ingestion_4_reordered
+      tags:
+        client_name: ${var.client_id}
       tasks:
         - task_key: cdc_ingestion_reordered_facts
           pipeline_task:

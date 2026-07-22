@@ -1,10 +1,13 @@
 # =============================================================================
-# Client A — Connection Configuration (DEMO / HARDCODED)
-# TODO: move credentials to Databricks secret scope before prod
-#       run: ./config/setup_secrets.sh --profile <p> --scope client-a-secrets
+# Client A — Connection Configuration
+# Credentials: Databricks secret scope (see config/setup_secrets.sh)
 # =============================================================================
 
+SECRET_SCOPE = "client-a-secrets"
+
 CONNECTION = {
+
+    "secret_scope": SECRET_SCOPE,
 
     # ── Source SQL Server (read) ──────────────────────────────────────────────
     "source": {
@@ -12,8 +15,11 @@ CONNECTION = {
         "port":     1433,
         "database": "free-sql-db-0862313",
         "schema":   "dbo",
-        "username": "CloudSAf8ffff73",
-        "password": "NewPassword123@##",
+        "secret_scope": SECRET_SCOPE,
+        "secret_keys": {
+            "username": "source-username",
+            "password": "source-password",
+        },
         "jdbc_options": {
             "encrypt":                "true",
             "trustServerCertificate": "false",
@@ -29,8 +35,11 @@ CONNECTION = {
         "database": "free-sql-db-0862313",
         "schema":         "dbo",
         "staging_schema": "stg",
-        "username": "CloudSAf8ffff73",
-        "password": "NewPassword123@##",
+        "secret_scope": SECRET_SCOPE,
+        "secret_keys": {
+            "username": "target-username",
+            "password": "target-password",
+        },
         "jdbc_options": {
             "encrypt":                "true",
             "trustServerCertificate": "false",

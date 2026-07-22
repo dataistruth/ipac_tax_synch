@@ -5,23 +5,28 @@
 #   pymssql  → lightweight, pure Python, for metadata / CT version queries
 #   JDBC     → Spark distributed reads, for bulk data unload
 #
-# pymssql is imported lazily so the JDBC functions work without it installed
-# (SDP pipelines only use JDBC, Task 1 notebooks use both)
+# Credentials resolved via src.utils.secrets (Databricks scope or env vars).
 # =============================================================================
+
+from src.utils.secrets import resolve_conn_block
+
+
+def _resolved(connection_source: dict, dbutils=None) -> dict:
+    return resolve_conn_block(connection_source, dbutils=dbutils)
 
 
 # =============================================================================
 # pymssql — lightweight queries (CT versions, row counts, metadata)
 # =============================================================================
 
-def get_connection(connection_source: dict):
+def get_connection(connection_source: dict, dbutils=None):
     """
     Lightweight pymssql connection for metadata queries.
     No Spark, no JVM — direct TCP to SQL Server.
     """
     import pymssql
 
-    src = connection_source
+    src = _resolved(connection_source, dbutils)
     return pymssql.connect(
         server       = src["host"],
         port         = src["port"],
@@ -33,17 +38,17 @@ def get_connection(connection_source: dict):
     )
 
 
-def fetch_one(connection_source: dict, sql: str, params=None) -> dict:
+def fetch_one(connection_source: dict, sql: str, params=None, dbutils=None) -> dict:
     """Single row query — CT version checks, scalar lookups."""
-    with get_connection(connection_source) as conn:
+    with get_connection(connection_source, dbutils=dbutils) as conn:
         cursor = conn.cursor(as_dict=True)
         cursor.execute(sql, params)
         return cursor.fetchone()
 
 
-def fetch_all(connection_source: dict, sql: str, params=None) -> list[dict]:
+def fetch_all(connection_source: dict, sql: str, params=None, dbutils=None) -> list[dict]:
     """Multi-row query — metadata, small lookups."""
-    with get_connection(connection_source) as conn:
+    with get_connection(connection_source, dbutils=dbutils) as conn:
         cursor = conn.cursor(as_dict=True)
         cursor.execute(sql, params)
         return cursor.fetchall()
@@ -53,14 +58,14 @@ def fetch_all(connection_source: dict, sql: str, params=None) -> list[dict]:
 # Spark JDBC — bulk data reads (full table / CHANGETABLE deltas)
 # =============================================================================
 
-def get_jdbc_config(connection_source: dict) -> tuple[str, dict]:
+def get_jdbc_config(connection_source: dict, dbutils=None) -> tuple[str, dict]:
     """
     Build JDBC URL + Spark properties from CONNECTION["source"].
 
     Returns:
         (jdbc_url, jdbc_props)
     """
-    src = connection_source
+    src = _resolved(connection_source, dbutils)
 
     jdbc_url = (
         f"jdbc:sqlserver://{src['host']}:{src['port']};"
@@ -77,13 +82,13 @@ def get_jdbc_config(connection_source: dict) -> tuple[str, dict]:
     return jdbc_url, jdbc_props
 
 
-def jdbc_read(spark, connection_source: dict, query: str):
+def jdbc_read(spark, connection_source: dict, query: str, dbutils=None):
     """
     Pushdown query via Spark JDBC — use for bulk data unload.
 
     Returns a Spark DataFrame.
     """
-    jdbc_url, jdbc_props = get_jdbc_config(connection_source)
+    jdbc_url, jdbc_props = get_jdbc_config(connection_source, dbutils=dbutils)
     return (
         spark.read.format("jdbc")
         .option("url", jdbc_url)
@@ -95,11 +100,11 @@ def jdbc_read(spark, connection_source: dict, query: str):
 
 def jdbc_read_table(spark, connection_source: dict, query: str,
                     partition_col: str = None, num_partitions: int = None,
-                    fetch_size: int = 10000):
+                    fetch_size: int = 10000, dbutils=None):
     """
     Partitioned JDBC read for medium/large tables.
     """
-    jdbc_url, jdbc_props = get_jdbc_config(connection_source)
+    jdbc_url, jdbc_props = get_jdbc_config(connection_source, dbutils=dbutils)
 
     reader = (
         spark.read.format("jdbc")
@@ -112,7 +117,8 @@ def jdbc_read_table(spark, connection_source: dict, query: str,
         bounds_df = jdbc_read(
             spark, connection_source,
             f"SELECT MIN([{partition_col}]) AS lo, "
-            f"MAX([{partition_col}]) AS hi FROM ({query}) _b"
+            f"MAX([{partition_col}]) AS hi FROM ({query}) _b",
+            dbutils=dbutils,
         )
         bounds = bounds_df.first()
         if bounds and bounds["lo"] is not None:

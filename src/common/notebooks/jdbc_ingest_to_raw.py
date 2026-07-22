@@ -23,7 +23,7 @@ if repo_root not in sys.path:
 import importlib
 from pyspark.sql.functions import lit
 from src.utils.lakebase.connection import fetch_all
-from src.utils.sqlserver.connection import fetch_one, jdbc_read, jdbc_read_table
+from src.utils.sqlserver.connection import fetch_one, jdbc_read
 
 client_module = importlib.import_module(f"config.clients.{client_name}.connection")
 CONNECTION    = client_module.CONNECTION
@@ -44,7 +44,7 @@ print(f"Target: {catalog}.{raw_schema}")
 
 table_configs = fetch_all(client_schema=client_name, sql="""
     SELECT src_schema_nm, src_tbl_nm, target_tbl_nm,
-           primary_key, select_cols, partition_col, tbl_size,
+           primary_key, select_cols, tbl_size,
            load_mode, last_ct_version
       FROM table_config
      WHERE is_active = 'Y'
@@ -74,7 +74,6 @@ for tbl in table_configs:
     last_ct     = int(tbl["last_ct_version"])
     keys        = [k.strip() for k in tbl["primary_key"].split(",")]
     select_cols = tbl.get("select_cols", "*")
-    part_col    = tbl.get("partition_col")
     tbl_size    = tbl.get("tbl_size", "small")
 
     is_incr = (tbl["load_mode"] == "incr"
@@ -104,10 +103,7 @@ for tbl in table_configs:
         else:
             query = f"SELECT * FROM {fq_source}"
 
-        pc = part_col if part_col else None
-        np = 4 if tbl_size in ("medium", "large") and pc else None
-        df = jdbc_read_table(spark, source, query,
-                             partition_col=pc, num_partitions=np)
+        df = jdbc_read(spark, source, query)
         df = (df.withColumn("_ct_op", lit("I"))
                 .withColumn("_ct_version", lit(db_ct_version)))
 

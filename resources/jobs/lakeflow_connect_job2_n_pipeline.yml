@@ -10,10 +10,13 @@
 # lakeflow_connect_job_n_pipeline.yml and shared bundle-wide — do NOT
 # redefine them here or the bundle will fail on duplicate variables.
 # =============================================================================
+
 resources:
   pipelines:
     auto_cdc_ingestion_2_pipeline:
       name: ${var.client_id}_auto_cdc_ingestion_2
+      tags:
+        client_name: ${var.client_id}
       pipeline_type: MANAGED_INGESTION
       channel: PREVIEW
       serverless: true
@@ -41,7 +44,9 @@ resources:
 
   jobs:
     auto_cdc_ingestion_2_job:
-      name: ${var.client_id}_auto_cdc_ingestion_2_job
+      name: job_${var.client_id}_auto_cdc_ingestion_2
+      tags:
+        client_name: ${var.client_id}
       tasks:
         - task_key: cdc_ingestion_wide_facts
           pipeline_task:
