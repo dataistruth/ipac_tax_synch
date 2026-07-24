@@ -5,6 +5,14 @@
 # Scope: ONLY the two wide fact tables (PK at ordinal position 40) used to
 # test the clustering-key behavior, isolated from the main 10-table pipeline.
 #
+# Liquid Clustering — standard Lakeflow Connect syntax:
+#   ingestion_definition.table_configuration.enable_auto_clustering: true  (pipeline default)
+#   Table 1 (users_1 pattern): per-table clustering_columns only
+#   Table 2 (calendar_test pattern): no table_configuration — inherits AUTO
+#
+#   Table 2: users_1 pattern (explicit in-window cols) — NOT calendar_test,
+#   because PK k1_line_id (col 40) is outside the 32-col destination window.
+#
 # NOTE: Variables (client_id, connection_name, source_catalog, source_schema,
 # dest_catalog, dest_schema, staging_schema) are defined once in
 # lakeflow_connect_job_n_pipeline.yml and shared bundle-wide — do NOT
@@ -25,26 +33,38 @@ resources:
       ingestion_definition:
         connection_name: ${var.connection_name}
         connector_type: CDC
+        table_configuration:
+          enable_auto_clustering: true
         data_staging_options:
           catalog_name: ${var.dest_catalog}
           schema_name: ${var.staging_schema}
         objects:
+          # users_1 pattern — explicit clustering_columns (cols within first 32)
           - table:
               source_catalog: ${var.source_catalog}
               source_schema: ${var.source_schema}
               source_table: fact_gl_line_detail
               destination_catalog: ${var.dest_catalog}
               destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns:
+                  - entity_id
+                  - period_id
+          # users_1 pattern — explicit in-window clustering_columns (cols 1, 4)
           - table:
               source_catalog: ${var.source_catalog}
               source_schema: ${var.source_schema}
               source_table: fact_k1_allocation_detail
               destination_catalog: ${var.dest_catalog}
               destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns:
+                  - entity_id
+                  - tax_year
 
   jobs:
-    auto_cdc_ingestion_2_job:
-      name: job_${var.client_id}_auto_cdc_ingestion_2
+    auto_cdc_ingestion_2_custom_lq_job:
+      name: job_${var.client_id}_auto_cdc_ingestion_2_custom_lq
       tags:
         client_name: ${var.client_id}
       tasks:

@@ -19,6 +19,16 @@
 #   employee_salaries, customer_payment_methods, audit_log,
 #   internal_costs, vendor_contracts
 #
+# Liquid Clustering (Lakeflow Connect CDC — Databricks engineering guidance):
+#   ingestion_definition.table_configuration.enable_auto_clustering: true  (pipeline default)
+#   Per-table clustering_columns for explicit keys (users_1 pattern)
+#   Per-table enable_auto_clustering: false to opt out (5 tables below)
+#   Tables with no table_configuration inherit AUTO (calendar_test pattern)
+#
+#   ALTER TABLE ... CLUSTER BY is NOT supported on CDC streaming tables.
+#   Min DBR for liquid clustering: 13.3. CDC only; SaaS/QBC not supported.
+#   Ref: https://docs.databricks.com/aws/en/tables/clustering
+#
 # NOTE: Uses del_con2_* variable names so this file does not override
 #       connection_name / source_schema for other Lakeflow jobs in the bundle.
 # =============================================================================
@@ -125,36 +135,47 @@ resources:
               source_table: suppliers
               destination_catalog: ${var.del_con2_dest_catalog}
               destination_schema: ${var.del_con2_dest_schema}
+          # 5 tables — liquid clustering disabled (opt out of pipeline AUTO)
           - table:
               source_catalog: ${var.del_con2_source_catalog}
               source_schema: ${var.del_con2_source_schema}
               source_table: purchase_orders
               destination_catalog: ${var.del_con2_dest_catalog}
               destination_schema: ${var.del_con2_dest_schema}
+              table_configuration:
+                enable_auto_clustering: false
           - table:
               source_catalog: ${var.del_con2_source_catalog}
               source_schema: ${var.del_con2_source_schema}
               source_table: promotions
               destination_catalog: ${var.del_con2_dest_catalog}
               destination_schema: ${var.del_con2_dest_schema}
+              table_configuration:
+                enable_auto_clustering: false
           - table:
               source_catalog: ${var.del_con2_source_catalog}
               source_schema: ${var.del_con2_source_schema}
               source_table: customer_addresses
               destination_catalog: ${var.del_con2_dest_catalog}
               destination_schema: ${var.del_con2_dest_schema}
+              table_configuration:
+                enable_auto_clustering: false
           - table:
               source_catalog: ${var.del_con2_source_catalog}
               source_schema: ${var.del_con2_source_schema}
               source_table: product_reviews
               destination_catalog: ${var.del_con2_dest_catalog}
               destination_schema: ${var.del_con2_dest_schema}
+              table_configuration:
+                enable_auto_clustering: false
           - table:
               source_catalog: ${var.del_con2_source_catalog}
               source_schema: ${var.del_con2_source_schema}
               source_table: returns
               destination_catalog: ${var.del_con2_dest_catalog}
               destination_schema: ${var.del_con2_dest_schema}
+              table_configuration:
+                enable_auto_clustering: false
 
   jobs:
     client_a_lakeflow_managed_connect_with_limited_id_job:

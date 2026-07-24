@@ -88,6 +88,9 @@ resources:
                   - updated_at
                   - batch_uuid
                   - is_active
+                clustering_columns:
+                    - entity_id
+                    - period_id
           # ------------------------------------------------------------------
           # fact_k1_allocation_detail → fact_k1_allocation_detail_reordered
           # All 41 columns; PK moved from position 40 to position 1.
@@ -142,6 +145,9 @@ resources:
                   - created_by
                   - created_at
                   - is_final
+                clustering_columns:
+                  - entity_id
+                  - period_id
 
   jobs:
     auto_cdc_ingestion_4_job:
