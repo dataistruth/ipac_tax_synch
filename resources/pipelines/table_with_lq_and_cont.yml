@@ -1,0 +1,68 @@
+# =============================================================================
+# Lakeflow Connect — tax_audit CDC (2 wide tables, custom liquid clustering)
+#
+# Source     : free-sql-db-0862313.tax_audit
+# Tables     : audit_finding_detail, audit_workpaper_line
+# Destination: ipac_tax_synch.client_a_raw_auto
+#
+# Liquid Clustering — users_1 pattern (explicit non-PK clustering_columns):
+#   audit_finding_detail  -> entity_id, period_id
+#   audit_workpaper_line  -> entity_id, tax_year
+#
+# Schedule: continuous (pipeline runs until stopped).
+#   continuous: true requires development: false (prod target).
+#   Dev-mode bundle deploy may override to triggered.
+#
+# Connection / catalog variables shared from:
+#   resources/jobs/lakeflow_connect_job_n_pipeline.yml
+#   (same pattern as lakeflow_connect_job2_with_custom_lq_n_pipeline.yml)
+#
+# SQL prerequisite:
+#   config/clients/client_a/sql/tax_audit_create_schema_and_tables.sql
+#   config/clients/client_a/sql/tax_audit_enable_change_tracking.sql
+# =============================================================================
+
+resources:
+  pipelines:
+    table_with_lq_and_cont:
+      name: table_with_lq_and_cont
+      tags:
+        client_name: ${var.client_id}
+      pipeline_type: MANAGED_INGESTION
+      channel: PREVIEW
+      serverless: true
+      continuous: true
+      development: false
+      catalog: ${var.dest_catalog}
+      schema: ${var.dest_schema}
+      ingestion_definition:
+        connection_name: ${var.connection_name}
+        connector_type: CDC
+        table_configuration:
+          enable_auto_clustering: true
+        data_staging_options:
+          catalog_name: ${var.dest_catalog}
+          schema_name: ${var.staging_schema}
+        objects:
+          # users_1 pattern — non-PK clustering columns (cols 1, 2)
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_finding_detail
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns:
+                  - entity_id
+                  - period_id
+          # users_1 pattern — non-PK clustering columns (cols 1, 12)
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_workpaper_line
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns:
+                  - entity_id
+                  - tax_year
