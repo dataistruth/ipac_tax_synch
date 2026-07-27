@@ -1,0 +1,362 @@
+# =============================================================================
+# Lakeflow Connect — tax_audit CDC (40 tables, custom liquid clustering)
+#
+# Source     : free-sql-db-0862313.tax_audit
+# Tables     : 20 from tax_audit_create_20_tables.sql
+#              + 20 from tax_audit_create_another_20_tables.sql
+# Destination: ipac_tax_synch.client_a_raw_auto
+#
+# Liquid Clustering — users_1 pattern (non-PK clustering_columns):
+#   All 40 tables -> entity_id, period_id  (cols 1, 2 in shared template)
+#
+# Schedule: continuous (pipeline runs until stopped).
+#
+# SQL prerequisite:
+#   tax_audit_create_20_tables.sql + tax_audit_create_another_20_tables.sql
+#   tax_audit_enable_change_tracking_40_tables.sql
+# =============================================================================
+
+resources:
+  pipelines:
+    tax_audit_40_tables_lq_cont:
+      name: tax_audit_40_tables_lq_cont
+      tags:
+        client_name: ${var.client_id}
+      pipeline_type: MANAGED_INGESTION
+      channel: PREVIEW
+      serverless: true
+      continuous: true
+      development: false
+      catalog: ${var.dest_catalog}
+      schema: ${var.dest_schema}
+      ingestion_definition:
+        connection_name: ${var.connection_name}
+        connector_type: CDC
+        table_configuration:
+          enable_auto_clustering: true
+        data_staging_options:
+          catalog_name: ${var.dest_catalog}
+          schema_name: ${var.staging_schema}
+        objects:
+          # --- batch 1 (20 tables) ---
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_engagement
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_entity_profile
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_partner_allocation
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_tax_period_lock
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_gl_balance
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_adjustment_entry
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_schedule_m1
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_schedule_k1_line
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_state_apportion
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_transfer_price
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_fixed_asset
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_depreciation
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_inventory_val
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_ar_aging
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_ap_aging
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_payroll_tax
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_sales_tax
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_nexus_study
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_penalty_claim
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_document_log
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          # --- batch 2 — another 20 tables ---
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_revenue_recognition
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_cost_of_sales
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_intercompany_elim
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_consolidation_entry
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_foreign_exchange
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_deferred_tax
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_uncertain_tax_pos
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_rd_tax_credit
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_estimated_payments
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_extension_filing
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_amended_return
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_tax_provision
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_effective_rate
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_book_tax_diff
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_wholly_owned_sub
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_cash_flow_tax
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_capital_account
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_partner_distribution
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_section_199a
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
+          - table:
+              source_catalog: ${var.source_catalog}
+              source_schema: tax_audit
+              source_table: audit_form_mapping
+              destination_catalog: ${var.dest_catalog}
+              destination_schema: ${var.dest_schema}
+              table_configuration:
+                clustering_columns: [entity_id, period_id]
