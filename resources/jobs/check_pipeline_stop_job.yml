@@ -1,0 +1,28 @@
+# =============================================================================
+# Check stop status for pipelines in pipeline_restart_registry.json only
+# (check_for_stop=Y). Does not scan all workspace pipelines.
+#
+# Fails and emails on_failure if any check_for_stop=Y pipeline is not RUNNING.
+# =============================================================================
+
+resources:
+  jobs:
+    check_pipeline_stop:
+      name: job_check_pipeline_stop
+      tags:
+        scope: workspace
+      max_concurrent_runs: 1
+
+      tasks:
+        - task_key: check_config_pipeline_stop_status
+          notebook_task:
+            notebook_path: ../../src/common/notebooks/check_config_pipeline_stop_status.py
+
+      # schedule:
+      #   quartz_cron_expression: '0 */15 * * * ?'
+      #   timezone_id: UTC
+      #   pause_status: PAUSED
+
+      email_notifications:
+        on_failure:
+          - mukesh.singh@databricks.com

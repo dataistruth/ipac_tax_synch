@@ -1,0 +1,55 @@
+# =============================================================================
+# Scheduled job — graceful restart for pipelines in pipeline_restart_registry.json
+#
+# Task graph:
+#   get_pipeline_restart_list  ──►  for_each_restart  ──►  restart_pipeline (each)
+#
+# Edit: config/common/pipeline_restart_registry.json (do_restart=Y + pipeline_id)
+#
+# Deploy: databricks bundle deploy --profile prod_w
+# Run:    databricks bundle run restart_lakeflow_pipeline --profile prod_w
+# =============================================================================
+
+resources:
+  jobs:
+    restart_lakeflow_pipeline:
+      name: job_restart_lakeflow_pipeline
+      tags:
+        scope: workspace
+      max_concurrent_runs: 1
+
+      parameters:
+        - name: stop_timeout_seconds
+          default: "600"
+        - name: wait_for_update
+          default: "false"
+
+      tasks:
+        - task_key: get_pipeline_restart_list
+          notebook_task:
+            notebook_path: ../../src/common/notebooks/get_pipeline_restart_list.py
+            base_parameters:
+              list_mode: restart
+
+        - task_key: for_each_restart
+          depends_on:
+            - task_key: get_pipeline_restart_list
+          for_each_task:
+            inputs: "{{tasks.get_pipeline_restart_list.values.pipelines}}"
+            concurrency: 1
+            task:
+              task_key: restart_one_pipeline
+              notebook_task:
+                notebook_path: ../../src/common/notebooks/restart_pipeline.py
+                base_parameters:
+                  pipeline_config: "{{input}}"
+                  stop_timeout_seconds: "{{job.parameters.stop_timeout_seconds}}"
+                  wait_for_update: "{{job.parameters.wait_for_update}}"
+
+      # schedule:
+      #   quartz_cron_expression: '0 0 3 ? * SUN'
+      #   timezone_id: UTC
+      #   pause_status: PAUSED
+
+      email_notifications:
+        on_failure: []

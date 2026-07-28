@@ -1,0 +1,21 @@
+{
+  "description": "Lakeflow pipeline registry. do_restart=Y for restart job; check_for_stop=Y for stop monitor job.",
+  "pipelines": [
+    {
+      "name": "table_with_lq_and_cont",
+      "pipeline_id": "90dc2e82-1265-4ed6-9632-d8deeb646669",
+      "do_restart": "Y",
+      "check_for_stop": "Y",
+      "full_refresh": false,
+      "notes": "Wide fact table, 2 tables — LQ + continuous integrated CDC"
+    },
+    {
+      "name": "tax_audit_40_tables_lq_cont",
+      "pipeline_id": "47f2e913-1519-487e-a11e-699f624ef024",
+      "do_restart": "Y",
+      "check_for_stop": "Y",
+      "full_refresh": false,
+      "notes": "40-table tax audit — LQ + continuous"
+    }
+  ]
+}
